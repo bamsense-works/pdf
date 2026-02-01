@@ -16,7 +16,7 @@ const Layout = ({ children }) => {
         </div>
       </main>
       <footer className={styles.footer}>
-        <p>&copy; {new Date().getFullYear()} Bamsense.works. Open Source PDF Tools.</p>
+        <p>&copy; {new Date().getFullYear()} Bamsense.works. <a href="https://github.com/bamsense-works/pdf" target="_blank" rel="noreferrer" className="underline hover:text-accent-secondary">Open Source (MIT)</a>.</p>
       </footer>
     </div>
   );

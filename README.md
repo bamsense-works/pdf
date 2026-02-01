@@ -1,5 +1,7 @@
 # Bamsense PDF Tools 📄✨
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Open Source. Local. Private.**
 
 Bamsense PDF Tools is a comprehensive, client-side PDF manipulation suite designed under the **bamsense.works** brand. Unlike traditional PDF tools that upload your sensitive documents to a cloud server, Bamsense processes everything **100% locally** in your browser.
@@ -67,7 +69,7 @@ Built with the **MIT-WPU Light Theme** adapted for productivity:
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Balagangadhar-Dev/pdf-tools.git
+   git clone https://github.com/bamsense-works/pdf.git
    ```
 2. Install dependencies:
    ```bash
