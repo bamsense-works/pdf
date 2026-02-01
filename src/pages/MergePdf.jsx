@@ -1,27 +1,46 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Reorder, AnimatePresence } from 'framer-motion';
-import { FileText, X, ArrowRight, Download, RefreshCw, Plus } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
+import { FileText, X, ArrowRight, Download, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
 import { mergePdfs } from '../utils/pdfUtils';
 import { useToast } from '../components/ToastProvider';
 import styles from './MergePdf.module.css';
 
+const generateId = () => Math.random().toString(36).substring(2, 15);
+
 const MergePdf = () => {
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  // Handle files passed from Dashboard
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles) {
+      initialFilesProcessed.current = true;
+      handleFilesSelected(location.state.initialFiles);
+      // Clear state so refresh doesn't re-add
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFilesSelected = (newFiles) => {
-    const filesWithId = Array.from(newFiles).map(file => ({
-      file,
-      id: uuidv4(),
-      name: file.name,
-      size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
-    }));
-    setFiles(prev => [...prev, ...filesWithId]);
+    try {
+      const filesWithId = Array.from(newFiles).map(file => ({
+        file,
+        id: generateId(),
+        name: file.name,
+        size: (file.size / 1024 / 1024).toFixed(2) + ' MB'
+      }));
+      setFiles(prev => [...prev, ...filesWithId]);
+    } catch (err) {
+      console.error("Selection error:", err);
+      addToast("Error processing selected files.", "error");
+    }
   };
 
   const removeFile = (id) => {
@@ -132,9 +151,12 @@ const MergePdf = () => {
           </div>
 
           <Reorder.Group axis="y" values={files} onReorder={setFiles} className={styles.fileList}>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {files.map((item) => (
-                <Reorder.Item key={item.id} value={item} className={styles.fileItem}
+                <Reorder.Item 
+                  key={item.id} 
+                  value={item} 
+                  className={styles.fileItem}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.9 }}

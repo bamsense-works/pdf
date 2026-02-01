@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Reorder, AnimatePresence } from 'framer-motion';
 import { FileImage, X, ArrowRight, Download, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -8,17 +9,29 @@ import { imagesToPdf } from '../utils/pdfUtils';
 import { useToast } from '../components/ToastProvider';
 import styles from './MergePdf.module.css';
 
+const generateId = () => Math.random().toString(36).substring(2, 15);
+
 const ImageToPdf = () => {
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles && location.state.initialFiles.length > 0) {
+      initialFilesProcessed.current = true;
+      handleFilesSelected(location.state.initialFiles);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFilesSelected = (newFiles) => {
     const validFiles = Array.from(newFiles).filter(f => f.type.startsWith('image/'));
     const filesWithId = validFiles.map(file => ({
       file,
-      id: uuidv4(),
+      id: generateId(),
       name: file.name,
       preview: URL.createObjectURL(file)
     }));

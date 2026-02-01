@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Minimize2, ArrowRight, RefreshCw, Download, Check, BarChart3, Leaf, Zap, AlertTriangle } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
@@ -13,6 +14,16 @@ const CompressPdf = () => {
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [finalSize, setFinalSize] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles && location.state.initialFiles.length > 0) {
+      initialFilesProcessed.current = true;
+      handleFileSelected(location.state.initialFiles);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFileSelected = (files) => {
     if (files.length > 0) setFile(files[0]);

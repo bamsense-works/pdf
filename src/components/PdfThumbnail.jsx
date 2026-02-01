@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
-// Explicitly import the worker using Vite's URL import
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
-// Ensure worker is set up (in case utils hasn't run yet)
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Reliable worker loading for Vite
+const workerUrl = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, className = "", children }) => {
   const canvasRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState(1.414); // Default A4 aspect ratio
+  const [aspectRatio, setAspectRatio] = useState(1.414);
 
   useEffect(() => {
     let active = true;
@@ -26,9 +28,9 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
         let loadingTask;
         if (file) {
           const arrayBuffer = await file.arrayBuffer();
-          loadingTask = pdfjsLib.getDocument(arrayBuffer);
+          loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, eventBus: null });
         } else {
-          loadingTask = pdfjsLib.getDocument(url);
+          loadingTask = pdfjsLib.getDocument({ url: url, eventBus: null });
         }
 
         pdfDoc = await loadingTask.promise;
@@ -57,11 +59,14 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
           };
           
           await page.render(renderContext).promise;
-          setLoading(false);
+          if (active) setLoading(false);
         }
       } catch (err) {
         console.error("Thumbnail render error:", err);
-        if (active) setError(true);
+        if (active) {
+          setError(true);
+          setLoading(false);
+        }
       }
     };
 
@@ -69,18 +74,24 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
 
     return () => {
       active = false;
-      if (pdfDoc) pdfDoc.destroy();
+      if (pdfDoc) {
+        pdfDoc.destroy().catch(() => {});
+      }
     };
   }, [file, url, pageIndex, width, rotation]);
 
   return (
     <div 
       className={`relative bg-white shadow-sm ${className}`} 
-      style={{ width, height: loading ? width * aspectRatio : 'auto' }}
+      style={{ 
+        width, 
+        minHeight: '40px',
+        height: loading ? width * aspectRatio : 'auto',
+        transition: 'height 0.3s ease'
+      }}
     >
       <canvas ref={canvasRef} className="block w-full h-auto" />
       
-      {/* Overlay Children (Watermark, etc.) */}
       {children && !loading && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {children}
@@ -88,14 +99,14 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
       )}
       
       {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-50/50 backdrop-blur-[2px]">
           <div className="w-6 h-6 border-2 border-slate-300 border-t-accent-secondary rounded-full animate-spin"></div>
         </div>
       )}
       
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-xs text-red-400 p-2 text-center">
-          Preview unavailable
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-100 text-[10px] text-red-400 p-2 text-center leading-tight">
+          Preview failed
         </div>
       )}
     </div>

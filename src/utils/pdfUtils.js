@@ -1,11 +1,13 @@
 import { PDFDocument, degrees, rgb, StandardFonts } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist';
-// Explicitly import the worker using Vite's URL import
-import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import JSZip from 'jszip';
 
-// Initialize PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+// Reliable worker loading for Vite
+const workerUrl = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 /**
  * Merge multiple PDFs into one.
@@ -26,7 +28,6 @@ export const mergePdfs = async (files) => {
 
 /**
  * Split PDF: Extract specific pages or ranges.
- * ranges: string like "1-5, 8, 11-13" (1-based index from UI)
  */
 export const splitPdf = async (file, rangeString) => {
   const fileBuffer = await file.arrayBuffer();
@@ -34,7 +35,6 @@ export const splitPdf = async (file, rangeString) => {
   const newPdf = await PDFDocument.create();
   const totalPages = srcPdf.getPageCount();
 
-  // Parse range string
   const pagesToKeep = new Set();
   const parts = rangeString.split(',').map(p => p.trim());
 
@@ -43,7 +43,7 @@ export const splitPdf = async (file, rangeString) => {
       const [start, end] = part.split('-').map(n => parseInt(n));
       if (!isNaN(start) && !isNaN(end)) {
         for (let i = start; i <= end; i++) {
-          if (i >= 1 && i <= totalPages) pagesToKeep.add(i - 1); // 0-based
+          if (i >= 1 && i <= totalPages) pagesToKeep.add(i - 1);
         }
       }
     } else {
@@ -68,15 +68,14 @@ export const splitPdf = async (file, rangeString) => {
  * Compress PDF: Basic vs Extreme optimization.
  */
 export const compressPdf = async (file, level = 'medium') => {
-  // HIGH LEVEL: Rasterize pages to images (Heavy compression, text becomes image)
   if (level === 'high') {
     const fileBuffer = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument(fileBuffer).promise;
+    const pdf = await pdfjsLib.getDocument({ data: fileBuffer }).promise;
     const newPdf = await PDFDocument.create();
     
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 1.0 }); // Standard scale (72 DPI approx)
+      const viewport = page.getViewport({ scale: 1.0 });
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
       canvas.height = viewport.height;
@@ -84,7 +83,6 @@ export const compressPdf = async (file, level = 'medium') => {
 
       await page.render({ canvasContext: context, viewport: viewport }).promise;
       
-      // Convert to low-quality JPG
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.5));
       const arrayBuffer = await blob.arrayBuffer();
       const image = await newPdf.embedJpg(arrayBuffer);
@@ -102,11 +100,9 @@ export const compressPdf = async (file, level = 'medium') => {
     return new Blob([pdfBytes], { type: 'application/pdf' });
   }
 
-  // LOW/MEDIUM: Metadata stripping & Object Streams (Lossless-ish)
   const fileBuffer = await file.arrayBuffer();
   const pdf = await PDFDocument.load(fileBuffer);
   
-  // Aggressively strip metadata
   pdf.setTitle('');
   pdf.setAuthor('');
   pdf.setSubject('');
@@ -121,8 +117,7 @@ export const compressPdf = async (file, level = 'medium') => {
 };
 
 /**
- * Rotate PDF: Rotate specific pages or all pages.
- * rotation: degrees (90, 180, 270)
+ * Rotate PDF
  */
 export const rotatePdf = async (file, rotation) => {
   const fileBuffer = await file.arrayBuffer();
@@ -139,15 +134,13 @@ export const rotatePdf = async (file, rotation) => {
 };
 
 /**
- * Organize PDF: Reorder, rotate, or delete pages.
- * pageOrder: array of objects { originalIndex, id, rotation (optional) }
+ * Organize PDF
  */
 export const organizePdf = async (file, pageOrder) => {
   const fileBuffer = await file.arrayBuffer();
   const srcPdf = await PDFDocument.load(fileBuffer);
   const newPdf = await PDFDocument.create();
 
-  // We need to copy pages individually to apply specific rotations
   const indices = pageOrder.map(p => p.originalIndex);
   const copiedPages = await newPdf.copyPages(srcPdf, indices);
 
@@ -165,7 +158,7 @@ export const organizePdf = async (file, pageOrder) => {
 };
 
 /**
- * Images to PDF: Convert JPG/PNG to PDF.
+ * Images to PDF
  */
 export const imagesToPdf = async (imageFiles) => {
   const pdf = await PDFDocument.create();
@@ -195,17 +188,16 @@ export const imagesToPdf = async (imageFiles) => {
 };
 
 /**
- * PDF to Images: Convert PDF pages to zipped images (JPG).
+ * PDF to Images
  */
 export const pdfToImages = async (file) => {
   const fileBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument(fileBuffer).promise;
+  const pdf = await pdfjsLib.getDocument({ data: fileBuffer }).promise;
   const zip = new JSZip();
-  const totalPages = pdf.numPages;
 
-  for (let i = 1; i <= totalPages; i++) {
+  for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 2.0 }); // High res
+    const viewport = page.getViewport({ scale: 2.0 });
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
     canvas.height = viewport.height;
@@ -221,15 +213,15 @@ export const pdfToImages = async (file) => {
 };
 
 /**
- * Add Watermark: Add text to pages.
+ * Add Watermark
  */
 export const watermarkPdf = async (file, text, settings = {}) => {
   const { 
     size = 50, 
     opacity = 0.5, 
     color = rgb(0.75, 0.2, 0.2),
-    position = 'center', // 'center' or 'tiled'
-    rotation = -45 // degrees
+    position = 'center',
+    rotation = -45
   } = settings;
 
   const fileBuffer = await file.arrayBuffer();
@@ -244,25 +236,14 @@ export const watermarkPdf = async (file, text, settings = {}) => {
   pages.forEach(page => {
     const { width, height } = page.getSize();
     const textWidth = font.widthOfTextAtSize(text, size);
-    const textHeight = font.heightAtSize(size);
 
     const drawMark = (cx, cy) => {
-      // Calculate start point (x, y) such that the center of the text ends up at (cx, cy)
-      // Vector from TextOrigin to TextCenter in unrotated space: V = (w/2, h/2)
-      // Rotate this vector: V'
-      // Origin = Center - V'
-      
-      // Note: textHeight is approx. Centering on font bounding box is tricky, 
-      // but size/2 is a reasonable approximation for visual center relative to baseline.
       const vX = (textWidth / 2) * cos - (size / 3) * sin; 
       const vY = (textWidth / 2) * sin + (size / 3) * cos;
 
-      const x = cx - vX;
-      const y = cy - vY;
-
       page.drawText(text, {
-        x,
-        y,
+        x: cx - vX,
+        y: cy - vY,
         size,
         font,
         color: color,
@@ -272,18 +253,14 @@ export const watermarkPdf = async (file, text, settings = {}) => {
     };
 
     if (position === 'tiled') {
-      // Create a dynamic grid based on text dimensions
-      const gapX = textWidth + (size * 2); // Text width + 2x font size margin
-      const gapY = size * 6; // Vertical spacing
-      
-      // Expand loop range to cover rotation edges
+      const gapX = textWidth + (size * 2);
+      const gapY = size * 6;
       for (let ix = -width; ix < width * 2; ix += gapX) {
         for (let iy = -height; iy < height * 2; iy += gapY) {
             drawMark(ix, iy);
         }
       }
     } else {
-      // Center
       drawMark(width / 2, height / 2);
     }
   });
@@ -292,7 +269,6 @@ export const watermarkPdf = async (file, text, settings = {}) => {
   return new Blob([pdfBytes], { type: 'application/pdf' });
 };
 
-// Helper: Get PDF Page count for UI
 export const getPdfPageCount = async (file) => {
   const buffer = await file.arrayBuffer();
   const pdf = await PDFDocument.load(buffer);

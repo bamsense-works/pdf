@@ -23,8 +23,8 @@
 /* Desktop Sidebar Adjustment */
 @media (min-width: 1024px) {
   .main {
-    padding-left: 100px; /* More clearance for the dock */
+    padding-left: 100px;
     padding-bottom: 4rem;
-    padding-top: 1rem;
+    padding-top: 1rem; /* Compact spacing */
   }
 }

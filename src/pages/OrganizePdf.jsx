@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutGrid, X, ArrowRight, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
@@ -13,6 +14,16 @@ const OrganizePdf = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles && location.state.initialFiles.length > 0) {
+      initialFilesProcessed.current = true;
+      handleFileSelected(location.state.initialFiles);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFileSelected = async (files) => {
     if (files.length > 0) {

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Stamp, ArrowRight, RefreshCw, Type, Palette, Droplets, Maximize, RotateCw, Grid, Square } from 'lucide-react';
 import { rgb } from 'pdf-lib';
 import FileUploader from '../components/FileUploader';
@@ -28,6 +29,16 @@ const WatermarkPdf = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles && location.state.initialFiles.length > 0) {
+      initialFilesProcessed.current = true;
+      handleFileSelected(location.state.initialFiles);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFileSelected = (files) => {
     if (files.length > 0) setFile(files[0]);

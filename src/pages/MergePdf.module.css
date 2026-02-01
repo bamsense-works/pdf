@@ -5,12 +5,12 @@
 
 .header {
   text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
   padding: 0 1rem;
 }
 
 .title {
-  font-size: 2.5rem; /* Larger, bolder titles */
+  font-size: 2.2rem; /* Slightly smaller for tool pages */
   font-weight: 800;
   color: var(--text-primary);
   margin-bottom: 0.75rem;

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Scissors, ArrowRight, RefreshCw, CheckCircle2, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
@@ -13,6 +14,16 @@ const SplitPdf = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
+  const location = useLocation();
+  const initialFilesProcessed = React.useRef(false);
+
+  useEffect(() => {
+    if (!initialFilesProcessed.current && location.state?.initialFiles && location.state.initialFiles.length > 0) {
+      initialFilesProcessed.current = true;
+      handleFileSelected(location.state.initialFiles);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location]);
 
   const handleFileSelected = async (files) => {
     if (files.length > 0) {
