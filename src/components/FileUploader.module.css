@@ -1,0 +1,47 @@
+.uploader {
+  border: 2px dashed var(--border-color);
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  padding: 4rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.uploader:hover,
+.active {
+  border-color: var(--accent-secondary);
+  background: rgba(181, 70, 90, 0.05); /* Slight tint */
+}
+
+.icon {
+  color: var(--text-muted);
+  width: 64px;
+  height: 64px;
+}
+
+.active .icon {
+  color: var(--accent-secondary);
+  animation: bounce 0.5s ease infinite alternate;
+}
+
+.textMain {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.textSub {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+@keyframes bounce {
+  from { transform: translateY(0); }
+  to { transform: translateY(-10px); }
+}
