@@ -8,6 +8,16 @@ const workerUrl = new URL(
 ).toString();
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
+const fileBufferCache = new WeakMap();
+
+const getFileBuffer = async (file) => {
+  const cached = fileBufferCache.get(file);
+  if (cached) return cached;
+  const buffer = await file.arrayBuffer();
+  fileBufferCache.set(file, buffer);
+  return buffer;
+};
+
 const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, className = "", children }) => {
   const canvasRef = useRef(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +27,8 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
   useEffect(() => {
     let active = true;
     let pdfDoc = null;
+    let loadingTask = null;
+    let renderTask = null;
 
     const renderPage = async () => {
       try {
@@ -25,9 +37,8 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
         setLoading(true);
         setError(false);
         
-        let loadingTask;
         if (file) {
-          const arrayBuffer = await file.arrayBuffer();
+          const arrayBuffer = await getFileBuffer(file);
           loadingTask = pdfjsLib.getDocument({ data: arrayBuffer, eventBus: null });
         } else {
           loadingTask = pdfjsLib.getDocument({ url: url, eventBus: null });
@@ -58,7 +69,8 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
             viewport: scaledViewport,
           };
           
-          await page.render(renderContext).promise;
+          renderTask = page.render(renderContext);
+          await renderTask.promise;
           if (active) setLoading(false);
         }
       } catch (err) {
@@ -74,6 +86,12 @@ const PdfThumbnail = ({ file, url, pageIndex, width = 200, rotation = 0, classNa
 
     return () => {
       active = false;
+      if (renderTask?.cancel) {
+        renderTask.cancel();
+      }
+      if (loadingTask?.destroy) {
+        loadingTask.destroy();
+      }
       if (pdfDoc) {
         pdfDoc.destroy().catch(() => {});
       }

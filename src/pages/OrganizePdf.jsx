@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { LayoutGrid, X, ArrowRight, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
 import { getPdfPageCount, organizePdf } from '../utils/pdfUtils';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
 
 const OrganizePdf = () => {
   const [file, setFile] = useState(null);
   const [pages, setPages] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [lowRes, setLowRes] = useState(() => window.innerWidth < 640);
   const { addToast } = useToast();
   const location = useLocation();
   const initialFilesProcessed = React.useRef(false);
@@ -25,18 +27,31 @@ const OrganizePdf = () => {
     }
   }, [location]);
 
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
+
   const handleFileSelected = async (files) => {
     if (files.length > 0) {
       const selected = files[0];
-      setFile(selected);
-      const count = await getPdfPageCount(selected);
-      const pageArray = Array.from({ length: count }, (_, i) => ({
-        id: `page-${i}`,
-        originalIndex: i,
-        displayNum: i + 1,
-        rotation: 0
-      }));
-      setPages(pageArray);
+      try {
+        setFile(selected);
+        const count = await getPdfPageCount(selected);
+        const pageArray = Array.from({ length: count }, (_, i) => ({
+          id: `page-${i}`,
+          originalIndex: i,
+          rotation: 0
+        }));
+        setPages(pageArray);
+      } catch (error) {
+        console.error(error);
+        const { message, type } = classifyPdfError(error, "Failed to read the PDF.");
+        addToast(message, type);
+        setFile(null);
+        setPages([]);
+      }
     }
   };
 
@@ -62,7 +77,8 @@ const OrganizePdf = () => {
       addToast("PDF organized successfully!", "success");
     } catch (error) {
       console.error(error);
-      addToast("Failed to organize PDF.", "error");
+      const { message, type } = classifyPdfError(error, "Failed to organize PDF.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
     }
@@ -102,7 +118,7 @@ const OrganizePdf = () => {
       </div>
 
       {!file ? (
-        <FileUploader onFilesSelected={handleFileSelected} multiple={false} />
+        <FileUploader onFilesSelected={handleFileSelected} multiple={false} label="Select PDF file" buttonLabel="Select PDF file" />
       ) : (
         <div>
           <div className="flex justify-between items-center mb-6 px-4">
@@ -119,68 +135,73 @@ const OrganizePdf = () => {
           </div>
 
           <p className="text-sm text-secondary text-center mb-4">
-            Hover pages for options.
+            Drag pages to reorder. Hover for rotate/delete.
           </p>
+          <div className="flex justify-center mb-3">
+            <label className="flex items-center gap-2 text-xs text-secondary">
+              <input type="checkbox" checked={lowRes} onChange={(e) => setLowRes(e.target.checked)} />
+              Low-res previews
+            </label>
+          </div>
 
-          <motion.div 
-            layout 
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-              gap: '1rem',
-              padding: '1rem'
-            }}
+          <Reorder.Group
+            axis="y"
+            values={pages}
+            onReorder={setPages}
+            className={styles.pageGrid}
           >
             <AnimatePresence>
-              {pages.map((page) => (
-                <motion.div 
+              {pages.map((page, index) => (
+                <Reorder.Item
                   layout
-                  key={page.id} 
+                  key={page.id}
+                  value={page}
                   className="relative group"
-                  initial={{ opacity: 0, scale: 0.9 }} 
-                  animate={{ opacity: 1, scale: 1 }} 
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.5 }}
                 >
-                  <div 
+                  <div
                     className="rounded-lg overflow-hidden shadow-sm border-2 border-transparent hover:border-accent-tertiary transition-all bg-white"
                   >
-                    <PdfThumbnail 
-                      file={file} 
-                      pageIndex={page.originalIndex} 
-                      width={180} 
+                    <PdfThumbnail
+                      file={file}
+                      pageIndex={page.originalIndex}
+                      width={lowRes ? 140 : 180}
                       rotation={page.rotation}
                       className="w-full"
                     />
                   </div>
 
-                  {/* Overlay Controls - Split Layout */}
                   <div className="absolute top-2 left-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => rotatePage(page.id)} 
+                    <button
+                      onClick={() => rotatePage(page.id)}
                       className="p-2 bg-white/90 hover:bg-blue-50 text-accent-primary rounded-lg shadow-sm backdrop-blur-sm border border-slate-200 transition-colors"
                       title="Rotate 90°"
+                      aria-label="Rotate page 90 degrees"
                     >
                       <RotateCw size={18} />
                     </button>
                   </div>
 
                   <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                      onClick={() => removePage(page.id)} 
+                    <button
+                      onClick={() => removePage(page.id)}
                       className="p-2 bg-white/90 hover:bg-red-50 text-red-500 rounded-lg shadow-sm backdrop-blur-sm border border-slate-200 transition-colors"
                       title="Delete Page"
+                      aria-label="Delete page"
                     >
                       <X size={18} />
                     </button>
                   </div>
 
                   <div className="absolute bottom-2 left-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded backdrop-blur-sm">
-                    {page.displayNum}
+                    {index + 1}
                   </div>
-                </motion.div>
+                </Reorder.Item>
               ))}
             </AnimatePresence>
-          </motion.div>
+          </Reorder.Group>
 
           <div className={styles.actionBar}>
              <button onClick={reset} className="btn" style={{ background: 'var(--bg-tertiary)' }}>Cancel</button>

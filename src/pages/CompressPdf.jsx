@@ -1,15 +1,37 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Minimize2, ArrowRight, RefreshCw, Download, Check, BarChart3, Leaf, Zap, AlertTriangle } from 'lucide-react';
+import { Minimize2, ArrowRight, RefreshCw, Check, BarChart3, Leaf, Zap } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
-import { compressPdf } from '../utils/pdfUtils';
+import { compressPdf, getPdfPageCount } from '../utils/pdfUtils';
+import { parsePageRange } from '../utils/pageRange';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
+import { loadSetting, saveSetting } from '../utils/storage';
+import * as pdfjsLib from 'pdfjs-dist';
+import ProgressOverlay from '../components/ProgressOverlay';
+
+const workerUrl = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url
+).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
 const CompressPdf = () => {
   const [file, setFile] = useState(null);
-  const [level, setLevel] = useState('medium');
+  const [level, setLevel] = useState(() => loadSetting('bamsense-compress-settings', {}).level || 'medium');
+  const [quality, setQuality] = useState(() => loadSetting('bamsense-compress-settings', {}).quality || 0.6);
+  const [pageCount, setPageCount] = useState(0);
+  const [applyAll, setApplyAll] = useState(() => loadSetting('bamsense-compress-settings', {}).applyAll ?? true);
+  const [rangeInput, setRangeInput] = useState(() => loadSetting('bamsense-compress-settings', {}).rangeInput || '');
+  const [previewPage, setPreviewPage] = useState(1);
+  const [compressedPreview, setCompressedPreview] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [presets, setPresets] = useState(() => loadSetting('bamsense-compress-presets', []));
+  const [presetName, setPresetName] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const [finalSize, setFinalSize] = useState(null);
@@ -25,8 +47,33 @@ const CompressPdf = () => {
     }
   }, [location]);
 
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
+
+  useEffect(() => {
+    saveSetting('bamsense-compress-settings', {
+      level,
+      quality,
+      applyAll,
+      rangeInput
+    });
+  }, [level, quality, applyAll, rangeInput]);
+
   const handleFileSelected = (files) => {
-    if (files.length > 0) setFile(files[0]);
+    if (files.length > 0) {
+      const selected = files[0];
+      setFile(selected);
+      setApplyAll(true);
+      setRangeInput('');
+      setPreviewPage(1);
+      setCompressedPreview(null);
+      getPdfPageCount(selected)
+        .then(setPageCount)
+        .catch(() => setPageCount(0));
+    }
   };
 
   const formatSize = (bytes) => {
@@ -49,10 +96,24 @@ const CompressPdf = () => {
   const handleCompress = async () => {
     if (!file) return;
     setIsProcessing(true);
+    setProgress(0);
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     try {
-      const compressedBlob = await compressPdf(file, level);
+      let pageIndices = null;
+      if (level === 'high' && !applyAll && rangeInput.trim()) {
+        const parsed = parsePageRange(rangeInput, pageCount);
+        if (parsed.length === 0) {
+          addToast("No valid pages in range.", "error");
+          setIsProcessing(false);
+          return;
+        }
+        pageIndices = parsed;
+      }
+      const options = level === 'high'
+        ? { quality: parseFloat(quality), pageIndices, onProgress: setProgress }
+        : {};
+      const compressedBlob = await compressPdf(file, level, options);
       const url = URL.createObjectURL(compressedBlob);
       setDownloadUrl(url);
       setFinalSize(compressedBlob.size);
@@ -64,9 +125,11 @@ const CompressPdf = () => {
       }
     } catch (error) {
       console.error(error);
-      addToast("Compression failed.", "error");
+      const { message, type } = classifyPdfError(error, "Compression failed.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
+      setProgress(null);
     }
   };
 
@@ -76,7 +139,72 @@ const CompressPdf = () => {
     setDownloadUrl(null);
     setFinalSize(null);
     setLevel('medium');
+    setQuality(0.6);
+    setApplyAll(true);
+    setRangeInput('');
+    setPageCount(0);
+    setPreviewPage(1);
+    setCompressedPreview(null);
+    setSelectedPreset('');
   };
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name) return;
+    const next = [...presets, { name, level, quality }];
+    setPresets(next);
+    saveSetting('bamsense-compress-presets', next);
+    setPresetName('');
+    addToast("Preset saved!", "success");
+  };
+
+  const applyPreset = (name) => {
+    const preset = presets.find((p) => p.name === name);
+    if (!preset) return;
+    setLevel(preset.level);
+    if (preset.quality !== undefined) setQuality(preset.quality);
+  };
+
+  const deletePreset = (name) => {
+    const next = presets.filter((p) => p.name !== name);
+    setPresets(next);
+    saveSetting('bamsense-compress-presets', next);
+    setSelectedPreset('');
+  };
+
+  useEffect(() => {
+    let active = true;
+    const renderPreview = async () => {
+      if (!file || level !== 'high') {
+        setCompressedPreview(null);
+        return;
+      }
+      try {
+        setPreviewLoading(true);
+        const buffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+        const page = await pdf.getPage(Math.min(previewPage, pdf.numPages));
+        const viewport = page.getViewport({ scale: 1.0 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        await page.render({ canvasContext: context, viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', parseFloat(quality));
+        if (active) setCompressedPreview(dataUrl);
+        pdf.destroy?.();
+      } catch {
+        if (active) setCompressedPreview(null);
+      } finally {
+        if (active) setPreviewLoading(false);
+      }
+    };
+
+    renderPreview();
+    return () => {
+      active = false;
+    };
+  }, [file, level, quality, previewPage]);
 
   if (downloadUrl) {
     const savings = file.size - finalSize;
@@ -128,6 +256,7 @@ const CompressPdf = () => {
             <button 
               onClick={reset} 
               className="btn w-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              aria-label="Try another compression setting"
             >
               <RefreshCw size={16} className="mr-2" /> Try another setting
             </button>
@@ -157,7 +286,7 @@ const CompressPdf = () => {
     {
       id: 'high',
       title: 'Extreme',
-      desc: 'Rasterizes pages. Text becomes image.',
+      desc: 'Rasterizes pages. Text becomes images.',
       icon: Zap,
       color: '#f59e0b',
       bg: 'bg-amber-50'
@@ -173,7 +302,7 @@ const CompressPdf = () => {
 
       {!file ? (
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <FileUploader onFilesSelected={handleFileSelected} multiple={false} />
+          <FileUploader onFilesSelected={handleFileSelected} multiple={false} label="Select PDF file" buttonLabel="Select PDF file" />
         </div>
       ) : (
         <div style={{ 
@@ -198,6 +327,86 @@ const CompressPdf = () => {
           </div>
 
           {/* Options Grid */}
+          <div style={{ width: '100%', background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.25rem' }}>
+            <div className="flex items-center justify-between mb-3">
+              <span className="font-semibold">Preview</span>
+              <div className="flex items-center gap-2 text-sm text-secondary">
+                <span>Page</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={pageCount || 1}
+                  value={previewPage}
+                  onChange={(e) => setPreviewPage(Math.max(1, Math.min(pageCount || 1, Number(e.target.value))))}
+                  className="w-20 px-2 py-1 rounded border border-slate-200"
+                  aria-label="Preview page number"
+                />
+                <span className="text-xs text-slate-400">/ {pageCount || 1}</span>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: level === 'high' ? '1fr 1fr' : '1fr', gap: '1rem' }}>
+              <div className="rounded-lg overflow-hidden border border-slate-200 bg-white">
+                <div className="text-xs font-semibold text-slate-500 p-2 border-b border-slate-100">Original</div>
+                <PdfThumbnail file={file} pageIndex={Math.max(0, previewPage - 1)} width={240} />
+              </div>
+              {level === 'high' && (
+                <div className="rounded-lg overflow-hidden border border-slate-200 bg-white">
+                  <div className="text-xs font-semibold text-slate-500 p-2 border-b border-slate-100">Extreme Preview</div>
+                  <div className="flex items-center justify-center min-h-[240px] bg-slate-50">
+                    {previewLoading && <div className="w-6 h-6 border-2 border-slate-300 border-t-accent-secondary rounded-full animate-spin" />}
+                    {!previewLoading && compressedPreview && (
+                      <img src={compressedPreview} alt="Compressed preview" className="block max-w-full h-auto" />
+                    )}
+                    {!previewLoading && !compressedPreview && (
+                      <span className="text-xs text-slate-400">Preview unavailable</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {level !== 'high' && (
+              <p className="text-xs text-slate-500 mt-2">Light and Balanced modes only remove metadata and optimize structure.</p>
+            )}
+          </div>
+
+          <div style={{ width: '100%', background: 'var(--card-bg)', border: '1px solid var(--border-color)', borderRadius: '16px', padding: '1.25rem' }}>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm font-semibold text-slate-700">Presets</label>
+                <select
+                  value={selectedPreset}
+                  onChange={(e) => {
+                    setSelectedPreset(e.target.value);
+                    applyPreset(e.target.value);
+                  }}
+                  className="px-2 py-1 text-sm border border-slate-200 rounded"
+                >
+                  <option value="">Select preset</option>
+                  {presets.map((p) => (
+                    <option key={p.name} value={p.name}>{p.name}</option>
+                  ))}
+                </select>
+                {selectedPreset && (
+                  <button onClick={() => deletePreset(selectedPreset)} className="btn text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">
+                    Delete
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  placeholder="Preset name"
+                  className="px-2 py-1 text-sm border border-slate-200 rounded"
+                />
+                <button onClick={savePreset} className="btn text-xs bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 px-2 py-1 rounded">
+                  Save preset
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div style={{ 
             display: 'grid', 
             gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
@@ -258,6 +467,46 @@ const CompressPdf = () => {
              ))}
           </div>
 
+          {level === 'high' && (
+            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 w-full">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-semibold text-amber-800">Image Quality</label>
+                <span className="text-sm font-mono text-amber-800">{Math.round(quality * 100)}%</span>
+              </div>
+              <input
+                type="range"
+                min="0.3"
+                max="0.9"
+                step="0.05"
+                value={quality}
+                onChange={(e) => setQuality(e.target.value)}
+                className="w-full cursor-pointer"
+                aria-label="Extreme compression image quality"
+              />
+              <p className="text-xs text-amber-700 mt-2">
+                Lower quality yields smaller files. Extreme mode converts text to images, so search and copy will not work.
+              </p>
+              <label className="flex items-center gap-2 text-sm text-amber-800 mt-4">
+                <input
+                  type="checkbox"
+                  checked={applyAll}
+                  onChange={(e) => setApplyAll(e.target.checked)}
+                />
+                Rasterize all pages
+              </label>
+              {!applyAll && (
+                <input
+                  type="text"
+                  value={rangeInput}
+                  onChange={(e) => setRangeInput(e.target.value)}
+                  placeholder="Page range (e.g. 1-3, 6)"
+                  className="mt-2 w-full px-3 py-2 text-sm rounded-lg border border-amber-100 bg-white"
+                  aria-label="Page range"
+                />
+              )}
+            </div>
+          )}
+
           {/* Action Bar */}
           <div style={{ display: 'flex', gap: '1rem', width: '100%', maxWidth: '400px', marginTop: '1rem' }}>
              <button onClick={reset} className="btn" style={{ flex: 1, background: 'var(--bg-tertiary)' }}>
@@ -270,7 +519,7 @@ const CompressPdf = () => {
 
         </div>
       )}
-      {isProcessing && <div className={styles.loadingOverlay}><div className={styles.spinner} /></div>}
+      {isProcessing && <ProgressOverlay label="Compressing..." progress={progress} />}
     </div>
   );
 };

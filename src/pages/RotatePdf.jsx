@@ -3,13 +3,20 @@ import { useLocation } from 'react-router-dom';
 import { RotateCw, RotateCcw, ArrowRight, RefreshCw, Undo2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
-import { rotatePdf } from '../utils/pdfUtils';
+import { rotatePdf, getPdfPageCount } from '../utils/pdfUtils';
+import { parsePageRange } from '../utils/pageRange';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
+import { loadSetting, saveSetting } from '../utils/storage';
 
 const RotatePdf = () => {
   const [file, setFile] = useState(null);
-  const [rotation, setRotation] = useState(0);
+  const [pageCount, setPageCount] = useState(0);
+  const [rotation, setRotation] = useState(() => loadSetting('bamsense-rotate-settings', {}).rotation || 0);
+  const [applyAll, setApplyAll] = useState(() => loadSetting('bamsense-rotate-settings', {}).applyAll ?? true);
+  const [rangeInput, setRangeInput] = useState(() => loadSetting('bamsense-rotate-settings', {}).rangeInput || '');
+  const [previewPage, setPreviewPage] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
   const { addToast } = useToast();
@@ -24,10 +31,34 @@ const RotatePdf = () => {
     }
   }, [location]);
 
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
+
+  useEffect(() => {
+    saveSetting('bamsense-rotate-settings', {
+      rotation,
+      applyAll,
+      rangeInput
+    });
+  }, [rotation, applyAll, rangeInput]);
+
   const handleFileSelected = (files) => {
     if (files.length > 0) {
-      setFile(files[0]);
+      const selected = files[0];
+      setFile(selected);
       setRotation(0); // Reset rotation on new file
+      setApplyAll(true);
+      setRangeInput('');
+      setPreviewPage(1);
+      getPdfPageCount(selected)
+        .then((count) => {
+          setPageCount(count);
+          setPreviewPage(1);
+        })
+        .catch(() => setPageCount(0));
     }
   };
 
@@ -41,18 +72,29 @@ const RotatePdf = () => {
       addToast("No rotation selected.", "info");
       return;
     }
-    
+
+    let pageIndices = null;
+    if (!applyAll && rangeInput.trim()) {
+      const parsed = parsePageRange(rangeInput, pageCount);
+      if (parsed.length === 0) {
+        addToast("No valid pages in range.", "error");
+        return;
+      }
+      pageIndices = parsed;
+    }
+
     setIsProcessing(true);
     await new Promise(resolve => setTimeout(resolve, 800));
     
     try {
-      const rotatedBlob = await rotatePdf(file, rotation);
+      const rotatedBlob = await rotatePdf(file, rotation, { pageIndices });
       const url = URL.createObjectURL(rotatedBlob);
       setDownloadUrl(url);
       addToast("PDF rotated successfully!", "success");
     } catch (error) {
       console.error(error);
-      addToast("Rotation failed.", "error");
+      const { message, type } = classifyPdfError(error, "Rotation failed.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
     }
@@ -63,6 +105,10 @@ const RotatePdf = () => {
     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     setDownloadUrl(null);
     setRotation(0);
+    setPageCount(0);
+    setApplyAll(true);
+    setRangeInput('');
+    setPreviewPage(1);
   };
 
   if (downloadUrl) {
@@ -86,6 +132,7 @@ const RotatePdf = () => {
             <button 
               onClick={reset} 
               className="btn w-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              aria-label="Rotate another PDF"
             >
               <RefreshCw size={16} className="mr-2" /> Start Over
             </button>
@@ -104,7 +151,7 @@ const RotatePdf = () => {
 
       {!file ? (
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <FileUploader onFilesSelected={handleFileSelected} multiple={false} />
+          <FileUploader onFilesSelected={handleFileSelected} multiple={false} label="Select PDF file" buttonLabel="Select PDF file" />
         </div>
       ) : (
         <div style={{ 
@@ -146,7 +193,7 @@ const RotatePdf = () => {
                 <div style={{ borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
                   <PdfThumbnail 
                     file={file} 
-                    pageIndex={0} 
+                    pageIndex={Math.max(0, previewPage - 1)} 
                     width={300} 
                     rotation={rotation}
                     className="block"
@@ -164,6 +211,7 @@ const RotatePdf = () => {
                   className="btn"
                   style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', width: '50px', height: '50px', padding: 0 }}
                   title="Rotate Left (-90°)"
+                  aria-label="Rotate left 90 degrees"
                 >
                   <RotateCcw size={20} />
                 </button>
@@ -180,6 +228,7 @@ const RotatePdf = () => {
                   className="btn"
                   style={{ background: 'var(--card-bg)', border: '1px solid var(--border-color)', width: '50px', height: '50px', padding: 0 }}
                   title="Rotate Right (+90°)"
+                  aria-label="Rotate right 90 degrees"
                 >
                   <RotateCw size={20} />
                 </button>
@@ -191,9 +240,44 @@ const RotatePdf = () => {
                   className="btn"
                   style={{ background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.8rem', gap: '0.5rem' }}
                   title="Reset to 0°"
+                  aria-label="Reset rotation"
                 >
                   <Undo2 size={16} /> Reset
                 </button>
+             </div>
+
+             <div style={{ marginTop: '1.25rem', width: '100%', maxWidth: '420px' }}>
+               <div className="flex items-center gap-2 text-sm text-secondary">
+                 <span>Preview page</span>
+                 <input
+                   type="number"
+                   min={1}
+                   max={pageCount || 1}
+                   value={previewPage}
+                   onChange={(e) => setPreviewPage(Math.max(1, Math.min(pageCount || 1, Number(e.target.value))))}
+                   className="w-20 px-2 py-1 rounded border border-slate-200"
+                   aria-label="Preview page number"
+                 />
+                 <span className="text-xs text-slate-400">/ {pageCount || 1}</span>
+               </div>
+               <label className="flex items-center gap-2 text-sm text-secondary">
+                 <input
+                   type="checkbox"
+                   checked={applyAll}
+                   onChange={(e) => setApplyAll(e.target.checked)}
+                 />
+                 Apply to all pages
+               </label>
+               {!applyAll && (
+                 <input
+                   type="text"
+                   value={rangeInput}
+                   onChange={(e) => setRangeInput(e.target.value)}
+                   placeholder="Page range (e.g. 1-3, 6)"
+                   className="mt-2 w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white"
+                   aria-label="Page range"
+                 />
+               )}
              </div>
 
           </div>

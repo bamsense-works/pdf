@@ -14,6 +14,10 @@ const ImageToPdf = lazy(() => import('./pages/ImageToPdf'));
 const RotatePdf = lazy(() => import('./pages/RotatePdf'));
 const OrganizePdf = lazy(() => import('./pages/OrganizePdf'));
 const WatermarkPdf = lazy(() => import('./pages/WatermarkPdf'));
+const ProtectPdf = lazy(() => import('./pages/ProtectPdf'));
+const BatchPdf = lazy(() => import('./pages/BatchPdf'));
+const MetadataPdf = lazy(() => import('./pages/MetadataPdf'));
+const ExtractText = lazy(() => import('./pages/ExtractText'));
 
 // Loading component
 const PageLoader = () => (
@@ -39,6 +43,10 @@ function App() {
                 <Route path="/rotate" element={<RotatePdf />} />
                 <Route path="/organize" element={<OrganizePdf />} />
                 <Route path="/watermark" element={<WatermarkPdf />} />
+                <Route path="/protect" element={<ProtectPdf />} />
+                <Route path="/batch" element={<BatchPdf />} />
+                <Route path="/metadata" element={<MetadataPdf />} />
+                <Route path="/extract-text" element={<ExtractText />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>

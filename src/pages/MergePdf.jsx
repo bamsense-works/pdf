@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Reorder, AnimatePresence } from 'framer-motion';
-import { FileText, X, ArrowRight, Download, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { X, ArrowRight, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
 import { mergePdfs } from '../utils/pdfUtils';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -27,6 +28,12 @@ const MergePdf = () => {
       window.history.replaceState({}, document.title);
     }
   }, [location]);
+
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
 
   const handleFilesSelected = (newFiles) => {
     try {
@@ -60,7 +67,8 @@ const MergePdf = () => {
       addToast("PDFs merged successfully!", "success");
     } catch (error) {
       console.error("Merge failed", error);
-      addToast("Failed to merge PDFs. Please try again.", "error");
+      const { message, type } = classifyPdfError(error, "Failed to merge PDFs. Please try again.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
     }
@@ -99,6 +107,7 @@ const MergePdf = () => {
             <button 
               onClick={reset}
               className="btn w-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              aria-label="Merge more PDFs"
             >
               <RefreshCw size={16} className="mr-2" />
               Merge more PDFs
@@ -119,7 +128,7 @@ const MergePdf = () => {
       </div>
 
       {files.length === 0 ? (
-        <FileUploader onFilesSelected={handleFilesSelected} />
+        <FileUploader onFilesSelected={handleFilesSelected} label="Select PDF files" buttonLabel="Select PDF files" />
       ) : (
         <div>
           <div className="flex justify-between items-center mb-4 px-2">
@@ -170,7 +179,7 @@ const MergePdf = () => {
                       <span className={styles.fileSize}>{item.size}</span>
                     </div>
                   </div>
-                  <button onClick={() => removeFile(item.id)} className={styles.removeBtn}>
+                  <button onClick={() => removeFile(item.id)} className={styles.removeBtn} aria-label={`Remove ${item.name}`}>
                     <X size={18} />
                   </button>
                 </Reorder.Item>

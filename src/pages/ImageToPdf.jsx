@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Reorder, AnimatePresence } from 'framer-motion';
-import { FileImage, X, ArrowRight, Download, RefreshCw, Plus, Trash2 } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
+import { X, ArrowRight, RefreshCw, Plus, Trash2 } from 'lucide-react';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
 import { imagesToPdf } from '../utils/pdfUtils';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -15,7 +15,11 @@ const ImageToPdf = () => {
   const [files, setFiles] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
+  const [viewMode, setViewMode] = useState('list');
+  const [previewItem, setPreviewItem] = useState(null);
   const { addToast } = useToast();
+  const filesRef = React.useRef([]);
+  const downloadUrlRef = React.useRef(null);
   const location = useLocation();
   const initialFilesProcessed = React.useRef(false);
 
@@ -26,6 +30,27 @@ const ImageToPdf = () => {
       window.history.replaceState({}, document.title);
     }
   }, [location]);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    downloadUrlRef.current = downloadUrl;
+  }, [downloadUrl]);
+
+  useEffect(() => {
+    return () => {
+      filesRef.current.forEach(f => URL.revokeObjectURL(f.preview));
+      if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
 
   const handleFilesSelected = (newFiles) => {
     const validFiles = Array.from(newFiles).filter(f => f.type.startsWith('image/'));
@@ -58,7 +83,8 @@ const ImageToPdf = () => {
       addToast("PDF created successfully!", "success");
     } catch (error) {
       console.error(error);
-      addToast("Failed to create PDF.", "error");
+      const { message, type } = classifyPdfError(error, "Failed to create PDF.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
     }
@@ -69,6 +95,7 @@ const ImageToPdf = () => {
     setFiles([]);
     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     setDownloadUrl(null);
+    setPreviewItem(null);
   };
 
   if (downloadUrl) {
@@ -115,14 +142,22 @@ const ImageToPdf = () => {
         <FileUploader 
           onFilesSelected={handleFilesSelected} 
           accept={{'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png']}}
+          label="Select image files"
+          buttonLabel="Select image files"
         />
       ) : (
         <div>
-           <div className="flex justify-between items-center mb-4 px-2">
-             <span className="text-sm font-medium text-secondary flex items-center gap-2">
-               <ArrowRight size={16} className="text-accent-secondary" /> Drag items to reorder
-             </span>
-             <div className="flex gap-2">
+          <div className="flex justify-between items-center mb-4 px-2">
+            <span className="text-sm font-medium text-secondary flex items-center gap-2">
+              <ArrowRight size={16} className="text-accent-secondary" /> Drag items to reorder
+            </span>
+            <div className="flex gap-2">
+               <button
+                  onClick={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}
+                  className="btn text-xs bg-slate-100 text-slate-700 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors"
+               >
+                  {viewMode === 'list' ? 'Grid view' : 'List view'}
+               </button>
                <button 
                   onClick={() => document.getElementById('add-img-input').click()} 
                   className="btn text-xs bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2"
@@ -139,15 +174,38 @@ const ImageToPdf = () => {
              <input id="add-img-input" type="file" accept=".jpg,.jpeg,.png" multiple hidden onChange={(e) => handleFilesSelected(e.target.files)} />
           </div>
 
-          <Reorder.Group axis="y" values={files} onReorder={setFiles} className={styles.fileList}>
+          <Reorder.Group
+            axis="y"
+            values={files}
+            onReorder={setFiles}
+            className={styles.fileList}
+            style={viewMode === 'grid' ? { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem' } : {}}
+          >
             <AnimatePresence>
               {files.map((item) => (
-                <Reorder.Item key={item.id} value={item} className={styles.fileItem} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <div className="flex items-center gap-3 overflow-hidden">
-                    <img src={item.preview} alt="" className="w-10 h-14 object-cover rounded border border-slate-200 bg-slate-50" />
+                <Reorder.Item
+                  key={item.id}
+                  value={item}
+                  className={styles.fileItem}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  style={viewMode === 'grid' ? { flexDirection: 'column', alignItems: 'stretch' } : {}}
+                >
+                  <button
+                    onClick={() => setPreviewItem(item)}
+                    className="flex items-center gap-3 overflow-hidden text-left"
+                    style={viewMode === 'grid' ? { flexDirection: 'column', alignItems: 'stretch' } : {}}
+                    aria-label={`Preview ${item.name}`}
+                  >
+                    <img
+                      src={item.preview}
+                      alt=""
+                      className={viewMode === 'grid' ? 'w-full h-40 object-cover rounded border border-slate-200 bg-slate-50' : 'w-10 h-14 object-cover rounded border border-slate-200 bg-slate-50'}
+                    />
                     <span className={styles.fileName}>{item.name}</span>
-                  </div>
-                  <button onClick={() => removeFile(item.id)} className={styles.removeBtn}><X size={18} /></button>
+                  </button>
+                  <button onClick={() => removeFile(item.id)} className={styles.removeBtn} aria-label={`Remove ${item.name}`}><X size={18} /></button>
                 </Reorder.Item>
               ))}
             </AnimatePresence>
@@ -165,6 +223,17 @@ const ImageToPdf = () => {
         <div className={styles.loadingOverlay}>
           <div className={styles.spinner} />
           <p className="mt-4 font-medium text-primary">Generating PDF...</p>
+        </div>
+      )}
+      {previewItem && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-4 max-w-3xl w-[90%]">
+            <div className="flex justify-between items-center mb-3">
+              <span className="text-sm font-semibold">{previewItem.name}</span>
+              <button onClick={() => setPreviewItem(null)} className="text-slate-500 hover:text-slate-700">Close</button>
+            </div>
+            <img src={previewItem.preview} alt="" className="w-full max-h-[70vh] object-contain bg-slate-50 rounded" />
+          </div>
         </div>
       )}
     </div>

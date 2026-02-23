@@ -4,9 +4,12 @@ import { Stamp, ArrowRight, RefreshCw, Type, Palette, Droplets, Maximize, Rotate
 import { rgb } from 'pdf-lib';
 import FileUploader from '../components/FileUploader';
 import PdfThumbnail from '../components/PdfThumbnail';
-import { watermarkPdf } from '../utils/pdfUtils';
+import { watermarkPdf, getPdfPageCount } from '../utils/pdfUtils';
+import { parsePageRange } from '../utils/pageRange';
 import { useToast } from '../components/ToastProvider';
-import styles from './MergePdf.module.css';
+import { classifyPdfError } from '../utils/pdfErrors';
+import styles from './ToolPage.module.css';
+import { loadSetting, saveSetting } from '../utils/storage';
 
 const hexToRgb = (hex) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -19,12 +22,18 @@ const hexToRgb = (hex) => {
 
 const WatermarkPdf = () => {
   const [file, setFile] = useState(null);
-  const [text, setText] = useState('CONFIDENTIAL');
-  const [color, setColor] = useState('#ef4444');
-  const [opacity, setOpacity] = useState(0.5);
-  const [fontSize, setFontSize] = useState(60);
-  const [rotation, setRotation] = useState(45); // Standard diagonal
-  const [isTiled, setIsTiled] = useState(false);
+  const [text, setText] = useState(() => loadSetting('bamsense-watermark-settings', {}).text || 'CONFIDENTIAL');
+  const [color, setColor] = useState(() => loadSetting('bamsense-watermark-settings', {}).color || '#ef4444');
+  const [opacity, setOpacity] = useState(() => loadSetting('bamsense-watermark-settings', {}).opacity ?? 0.5);
+  const [fontSize, setFontSize] = useState(() => loadSetting('bamsense-watermark-settings', {}).fontSize || 60);
+  const [rotation, setRotation] = useState(() => loadSetting('bamsense-watermark-settings', {}).rotation || 45); // Standard diagonal
+  const [isTiled, setIsTiled] = useState(() => loadSetting('bamsense-watermark-settings', {}).isTiled || false);
+  const [pageCount, setPageCount] = useState(0);
+  const [applyAll, setApplyAll] = useState(() => loadSetting('bamsense-watermark-settings', {}).applyAll ?? true);
+  const [rangeInput, setRangeInput] = useState(() => loadSetting('bamsense-watermark-settings', {}).rangeInput || '');
+  const [presets, setPresets] = useState(() => loadSetting('bamsense-watermark-presets', []));
+  const [presetName, setPresetName] = useState('');
+  const [selectedPreset, setSelectedPreset] = useState('');
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadUrl, setDownloadUrl] = useState(null);
@@ -40,8 +49,35 @@ const WatermarkPdf = () => {
     }
   }, [location]);
 
+  useEffect(() => {
+    return () => {
+      if (downloadUrl) URL.revokeObjectURL(downloadUrl);
+    };
+  }, [downloadUrl]);
+
+  useEffect(() => {
+    saveSetting('bamsense-watermark-settings', {
+      text,
+      color,
+      opacity,
+      fontSize,
+      rotation,
+      isTiled,
+      applyAll,
+      rangeInput
+    });
+  }, [text, color, opacity, fontSize, rotation, isTiled, applyAll, rangeInput]);
+
   const handleFileSelected = (files) => {
-    if (files.length > 0) setFile(files[0]);
+    if (files.length > 0) {
+      const selected = files[0];
+      setFile(selected);
+      setApplyAll(true);
+      setRangeInput('');
+      getPdfPageCount(selected)
+        .then(setPageCount)
+        .catch(() => setPageCount(0));
+    }
   };
 
   const handleWatermark = async () => {
@@ -51,12 +87,23 @@ const WatermarkPdf = () => {
     
     try {
       const pdfColor = hexToRgb(color);
+      let pageIndices = null;
+      if (!applyAll && rangeInput.trim()) {
+        const parsed = parsePageRange(rangeInput, pageCount);
+        if (parsed.length === 0) {
+          addToast("No valid pages in range.", "error");
+          setIsProcessing(false);
+          return;
+        }
+        pageIndices = parsed;
+      }
       const settings = {
         size: parseInt(fontSize),
         opacity: parseFloat(opacity),
         color: pdfColor,
         position: isTiled ? 'tiled' : 'center',
-        rotation: parseInt(rotation)
+        rotation: parseInt(rotation),
+        pageIndices
       };
 
       const watermarkedBlob = await watermarkPdf(file, text, settings);
@@ -65,7 +112,8 @@ const WatermarkPdf = () => {
       addToast("Watermark added successfully!", "success");
     } catch (error) {
       console.error(error);
-      addToast("Watermarking failed.", "error");
+      const { message, type } = classifyPdfError(error, "Watermarking failed.");
+      addToast(message, type);
     } finally {
       setIsProcessing(false);
     }
@@ -76,6 +124,39 @@ const WatermarkPdf = () => {
     if (downloadUrl) URL.revokeObjectURL(downloadUrl);
     setDownloadUrl(null);
     setText('CONFIDENTIAL');
+    setApplyAll(true);
+    setRangeInput('');
+    setPageCount(0);
+    setSelectedPreset('');
+  };
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    if (!name) return;
+    const preset = { name, text, color, opacity, fontSize, rotation, isTiled };
+    const next = [...presets, preset];
+    setPresets(next);
+    saveSetting('bamsense-watermark-presets', next);
+    setPresetName('');
+    addToast("Preset saved!", "success");
+  };
+
+  const applyPreset = (name) => {
+    const preset = presets.find((p) => p.name === name);
+    if (!preset) return;
+    setText(preset.text);
+    setColor(preset.color);
+    setOpacity(preset.opacity);
+    setFontSize(preset.fontSize);
+    setRotation(preset.rotation);
+    setIsTiled(preset.isTiled);
+  };
+
+  const deletePreset = (name) => {
+    const next = presets.filter((p) => p.name !== name);
+    setPresets(next);
+    saveSetting('bamsense-watermark-presets', next);
+    setSelectedPreset('');
   };
 
   // Generate preview elements
@@ -139,6 +220,7 @@ const WatermarkPdf = () => {
             <button 
               onClick={reset} 
               className="btn w-full bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+              aria-label="Start over"
             >
               <RefreshCw size={16} className="mr-2" /> Start Over
             </button>
@@ -157,7 +239,7 @@ const WatermarkPdf = () => {
 
       {!file ? (
         <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-          <FileUploader onFilesSelected={handleFileSelected} multiple={false} />
+        <FileUploader onFilesSelected={handleFileSelected} multiple={false} label="Select PDF file" buttonLabel="Select PDF file" />
         </div>
       ) : (
         <div style={{ 
@@ -310,6 +392,65 @@ const WatermarkPdf = () => {
                         />
                     </div>
                  </div>
+               </div>
+
+               <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '10px' }}>
+                 <div className="flex items-center justify-between gap-2 flex-wrap">
+                   <div className="flex items-center gap-2">
+                     <label className="text-sm font-semibold">Presets</label>
+                     <select
+                       value={selectedPreset}
+                       onChange={(e) => {
+                         setSelectedPreset(e.target.value);
+                         applyPreset(e.target.value);
+                       }}
+                       className="px-2 py-1 text-sm border border-slate-200 rounded"
+                     >
+                       <option value="">Select preset</option>
+                       {presets.map((p) => (
+                         <option key={p.name} value={p.name}>{p.name}</option>
+                       ))}
+                     </select>
+                     {selectedPreset && (
+                       <button onClick={() => deletePreset(selectedPreset)} className="btn text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded">
+                         Delete
+                       </button>
+                     )}
+                   </div>
+                   <div className="flex items-center gap-2">
+                     <input
+                       type="text"
+                       value={presetName}
+                       onChange={(e) => setPresetName(e.target.value)}
+                       placeholder="Preset name"
+                       className="px-2 py-1 text-sm border border-slate-200 rounded"
+                     />
+                     <button onClick={savePreset} className="btn text-xs bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/20 px-2 py-1 rounded">
+                       Save preset
+                     </button>
+                   </div>
+                 </div>
+               </div>
+
+               <div style={{ background: 'var(--bg-primary)', padding: '1rem', borderRadius: '10px' }}>
+                 <label className="flex items-center gap-2 text-sm text-secondary">
+                   <input
+                     type="checkbox"
+                     checked={applyAll}
+                     onChange={(e) => setApplyAll(e.target.checked)}
+                   />
+                   Apply to all pages
+                 </label>
+                 {!applyAll && (
+                   <input
+                     type="text"
+                     value={rangeInput}
+                     onChange={(e) => setRangeInput(e.target.value)}
+                     placeholder="Page range (e.g. 1-3, 6)"
+                     className="mt-2 w-full px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white"
+                     aria-label="Page range"
+                   />
+                 )}
                </div>
 
                <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>

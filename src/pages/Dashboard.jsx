@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Combine, Scissors, Minimize2, Image, FileImage, 
-  RotateCw, LayoutGrid, Stamp, Search, ShieldCheck, 
-  Zap, ArrowRight, FileText, UploadCloud
+  RotateCw, LayoutGrid, Stamp, Search, 
+  UploadCloud, Lock, Layers, Tag, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDropzone } from 'react-dropzone';
@@ -76,6 +76,38 @@ const tools = [
     icon: Stamp,
     to: '/watermark',
     category: 'edit'
+  },
+  {
+    id: 'protect',
+    title: 'Protect PDF',
+    description: 'Encrypt your PDF with a password. Secure your data locally.',
+    icon: Lock,
+    to: '/protect',
+    category: 'edit'
+  },
+  {
+    id: 'batch',
+    title: 'Batch PDF',
+    description: 'Apply one operation to multiple PDFs and download a ZIP.',
+    icon: Layers,
+    to: '/batch',
+    category: 'organize'
+  },
+  {
+    id: 'metadata',
+    title: 'Edit Metadata',
+    description: 'Update PDF title, author, and keywords.',
+    icon: Tag,
+    to: '/metadata',
+    category: 'edit'
+  },
+  {
+    id: 'extract-text',
+    title: 'Extract Text',
+    description: 'Pull text content from your PDF locally.',
+    icon: FileText,
+    to: '/extract-text',
+    category: 'convert'
   }
 ];
 
@@ -158,6 +190,7 @@ const Dashboard = () => {
             placeholder="Search tools (e.g. 'merge', 'convert')..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search tools"
             style={{ 
               width: '100%', 
               padding: '1rem 1rem 1rem 3rem', 

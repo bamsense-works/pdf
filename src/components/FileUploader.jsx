@@ -3,7 +3,14 @@ import { useDropzone } from 'react-dropzone';
 import { UploadCloud } from 'lucide-react';
 import styles from './FileUploader.module.css';
 
-const FileUploader = ({ onFilesSelected, accept = { 'application/pdf': ['.pdf'] }, multiple = true }) => {
+const FileUploader = ({
+  onFilesSelected,
+  accept = { 'application/pdf': ['.pdf'] },
+  multiple = true,
+  label = 'Select files',
+  subLabel = 'or drop files here',
+  buttonLabel = 'Select files'
+}) => {
   const onDrop = useCallback((acceptedFiles) => {
     if (acceptedFiles?.length > 0) {
       onFilesSelected(acceptedFiles);
@@ -24,18 +31,18 @@ const FileUploader = ({ onFilesSelected, accept = { 'application/pdf': ['.pdf'] 
       tabIndex={0}
       aria-label="File Upload Dropzone"
     >
-      <input {...getInputProps()} id="file-upload-input" name="file-upload" />
+      <input {...getInputProps()} id="file-upload-input" name="file-upload" aria-label={label} />
       <UploadCloud className={styles.icon} aria-hidden="true" />
       <div>
         <p className={styles.textMain}>
-          {isDragActive ? "Drop files here..." : "Select PDF files"}
+          {isDragActive ? "Drop files here..." : label}
         </p>
         <p className={styles.textSub}>
-          or drop files here
+          {subLabel}
         </p>
       </div>
-      <label htmlFor="file-upload-input" className="btn btn-action" onClick={(e) => e.stopPropagation()}>
-        Select PDF files
+      <label htmlFor="file-upload-input" className="btn btn-action" onClick={(e) => e.stopPropagation()} aria-label="Choose files">
+        {buttonLabel}
       </label>
     </div>
   );

@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
   Combine, Scissors, Minimize2, Image, FileImage, 
-  RotateCw, LayoutGrid, Stamp, Home, Moon, Sun 
+  RotateCw, LayoutGrid, Stamp, Home, Moon, Sun, Lock,
+  Layers, Tag, FileText
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
@@ -17,6 +18,10 @@ const navItems = [
   { id: 'pdf-to-img', icon: Image, label: 'PDF to JPG', to: '/pdf-to-jpg' },
   { id: 'img-to-pdf', icon: FileImage, label: 'JPG to PDF', to: '/jpg-to-pdf' },
   { id: 'watermark', icon: Stamp, label: 'Watermark', to: '/watermark' },
+  { id: 'protect', icon: Lock, label: 'Protect', to: '/protect' },
+  { id: 'batch', icon: Layers, label: 'Batch', to: '/batch' },
+  { id: 'metadata', icon: Tag, label: 'Metadata', to: '/metadata' },
+  { id: 'extract-text', icon: FileText, label: 'Extract Text', to: '/extract-text' },
 ];
 
 const Navigation = () => {
@@ -94,6 +99,7 @@ const Navigation = () => {
               borderRadius: '10px', border: 'none', background: 'transparent', cursor: 'pointer',
               color: 'var(--text-secondary)'
             }}
+            aria-label="Toggle theme"
           >
             {isDark ? <Sun size={20} /> : <Moon size={20} />}
           </button>
@@ -129,7 +135,7 @@ const Navigation = () => {
              <item.icon size={22} />
            </NavLink>
         ))}
-        <button onClick={toggleTheme} style={{ background: 'transparent', border: 'none', padding: '0.75rem', color: '#94a3b8' }}>
+        <button onClick={toggleTheme} style={{ background: 'transparent', border: 'none', padding: '0.75rem', color: '#94a3b8' }} aria-label="Toggle theme">
            {isDark ? <Sun size={22} /> : <Moon size={22} />}
         </button>
       </div>
